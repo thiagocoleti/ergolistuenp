@@ -229,10 +229,13 @@ const resultsUI = {
     appName: document.getElementById('result-app-name'),
     appType: document.getElementById('result-app-type'),
     statsContainer: document.getElementById('stats-container'),
-    tableBody: document.querySelector('#results-table tbody'),
+    tablesContainer: document.getElementById('results-tables-container'),
     newBtn: document.getElementById('new-inspection-btn'),
-    printBtn: document.getElementById('print-btn')
+    printBtn: document.getElementById('print-btn'),
+    jsonBtn: document.getElementById('download-json-btn'),
+    csvBtn: document.getElementById('download-csv-btn')
 };
+
 
 // Initialize
 function init() {
@@ -255,7 +258,10 @@ function setupEventListeners() {
     inspectionUI.finishBtn.addEventListener('click', finishInspection);
     resultsUI.newBtn.addEventListener('click', () => location.reload());
     resultsUI.printBtn.addEventListener('click', () => window.print());
+    resultsUI.jsonBtn.addEventListener('click', () => downloadResults('json'));
+    resultsUI.csvBtn.addEventListener('click', () => downloadResults('csv'));
 }
+
 
 function showScreen(screenId) {
     Object.values(screens).forEach(s => s.classList.remove('active'));
@@ -303,23 +309,12 @@ function renderQuestions() {
                         <button class="option-btn" data-value="Não">Não</button>
                         <button class="option-btn" data-value="NA">N/A</button>
                     </div>
-                    <div class="recommendation-input" id="rec-container-${qId}">
-                        <textarea placeholder="Sua recomendação..." id="rec-${qId}"></textarea>
-                    </div>
                 `;
                 
                 // Add events to options
                 const btns = qDiv.querySelectorAll('.option-btn');
                 btns.forEach(btn => {
                     btn.addEventListener('click', () => handleAnswer(qId, btn.dataset.value, btns, qDiv));
-                });
-
-                // Add event to textarea
-                const textarea = qDiv.querySelector('textarea');
-                textarea.addEventListener('input', (e) => {
-                    if (state.answers[qId]) {
-                        state.answers[qId].recommendation = e.target.value;
-                    }
                 });
 
                 subDiv.appendChild(qDiv);
@@ -336,19 +331,9 @@ function handleAnswer(qId, value, btns, container) {
     const selectedBtn = Array.from(btns).find(b => b.dataset.value === value);
     selectedBtn.classList.add('selected');
     
-    // Show recommendation if "Não"
-    const recContainer = document.getElementById(`rec-container-${qId}`);
-    if (value === "Não") {
-        recContainer.classList.add('visible');
-    } else {
-        recContainer.classList.remove('visible');
-    }
-    
     // Update State
-    const existingRec = state.answers[qId]?.recommendation || "";
     state.answers[qId] = {
-        response: value,
-        recommendation: existingRec
+        response: value
     };
     
     updateProgress();
@@ -365,24 +350,21 @@ function updateProgress() {
 }
 
 function finishInspection() {
-    if (Object.keys(state.answers).length < state.totalQuestions) {
-        if (!confirm("Você ainda não respondeu todas as questões. Deseja finalizar assim mesmo?")) {
-            return;
-        }
-    }
-    
+    // Requirements: Not mandatory to answer all questions.
+    // Proceed directly to results.
     renderResults();
     showScreen('results');
 }
+
 
 function renderResults() {
     resultsUI.appName.textContent = state.appName;
     resultsUI.appType.textContent = state.appType;
     
     // Stats
-    const answered = Object.keys(state.answers).length;
-    const unanswered = state.totalQuestions - answered;
-    const percentAnswered = Math.round((answered / state.totalQuestions) * 100);
+    const answeredCount = Object.values(state.answers).filter(a => a.response !== "Não Respondido").length;
+    const skipCount = state.totalQuestions - answeredCount;
+    const percentAnswered = Math.round((answeredCount / state.totalQuestions) * 100);
     
     resultsUI.statsContainer.innerHTML = `
         <div class="stat-card">
@@ -391,39 +373,139 @@ function renderResults() {
         </div>
         <div class="stat-card">
             <span class="stat-value">${percentAnswered}%</span>
-            <span class="stat-label">Concluído</span>
+            <span class="stat-label">Taxa de Resposta</span>
         </div>
         <div class="stat-card">
-            <span class="stat-value">${answered}</span>
+            <span class="stat-value">${answeredCount}</span>
             <span class="stat-label">Respondidas</span>
         </div>
         <div class="stat-card">
-            <span class="stat-value">${unanswered}</span>
-            <span class="stat-label">Pendentes</span>
+            <span class="stat-value" style="color: #f57f17;">${skipCount}</span>
+            <span class="stat-label">Não Respondidas</span>
         </div>
     `;
+
     
-    // Table
-    resultsUI.tableBody.innerHTML = '';
+    // Tables
+    resultsUI.tablesContainer.innerHTML = '';
     
     criteriaData.forEach((criterion, cIdx) => {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'table-wrapper';
+        wrapper.innerHTML = `<h3>${criterion.title}</h3>`;
+        
+        const tableResponsive = document.createElement('div');
+        tableResponsive.className = 'table-responsive';
+        
+        const table = document.createElement('table');
+        table.innerHTML = `
+            <thead>
+                <tr>
+                    <th>Critério</th>
+                    <th>Subcritério</th>
+                    <th>Questão</th>
+                    <th>Resposta</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+            <tfoot></tfoot>
+        `;
+        
+        const tbody = table.querySelector('tbody');
+        const tfoot = table.querySelector('tfoot');
+        
+        let critSim = 0, critNao = 0, critNA = 0, critNR = 0;
+
         criterion.subcriteria.forEach((sub, sIdx) => {
             sub.questions.forEach((qText, qIdx) => {
                 const qId = `${cIdx}-${sIdx}-${qIdx}`;
-                const answer = state.answers[qId] || { response: "Não respondida", recommendation: "-" };
+                const answer = state.answers[qId] || { response: "Não Respondido" };
+                
+                if (answer.response === "Sim") critSim++;
+                else if (answer.response === "Não") critNao++;
+                else if (answer.response === "NA") critNA++;
+                else critNR++;
                 
                 const row = document.createElement('tr');
+                // Clean label for badge
+                const badgeClass = answer.response.replace(/\s+/g, '-');
                 row.innerHTML = `
                     <td>${criterion.title}</td>
                     <td>${sub.title}</td>
                     <td>${qText}</td>
-                    <td><span class="badge badge-${answer.response}">${answer.response}</span></td>
-                    <td>${answer.recommendation || "-"}</td>
+                    <td><span class="badge badge-${badgeClass}">${answer.response}</span></td>
                 `;
-                resultsUI.tableBody.appendChild(row);
+                tbody.appendChild(row);
             });
         });
+
+        // Add Totalizer Row
+        const footerRow = document.createElement('tr');
+        footerRow.className = 'totalizer-row';
+        footerRow.innerHTML = `
+            <td colspan="3" style="text-align: right;">Total para ${criterion.title}:</td>
+            <td>
+                <div class="stat-group">
+                    <span class="stat-item stat-sim">Sim: ${critSim}</span>
+                    <span class="stat-item stat-nao">Não: ${critNao}</span>
+                    <span class="stat-item stat-na">N/A: ${critNA}</span>
+                    <span class="stat-item stat-nao-respondido">N/R: ${critNR}</span>
+                </div>
+            </td>
+        `;
+        tfoot.appendChild(footerRow);
+
+        
+        tableResponsive.appendChild(table);
+        wrapper.appendChild(tableResponsive);
+        resultsUI.tablesContainer.appendChild(wrapper);
     });
 }
 
+function downloadResults(type) {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const fileName = `ErgoList_${state.appName.replace(/\s+/g, '_')}_${timestamp}`;
+    
+    if (type === 'json') {
+        const dataStr = JSON.stringify(state, null, 2);
+        const blob = new Blob([dataStr], { type: 'application/json' });
+        triggerDownload(blob, `${fileName}.json`);
+    } else if (type === 'csv') {
+        const csvRows = [
+            ['Critério', 'Subcritério', 'Questão', 'Resposta'].join(',')
+        ];
+        
+        criteriaData.forEach((criterion, cIdx) => {
+            criterion.subcriteria.forEach((sub, sIdx) => {
+                sub.questions.forEach((qText, qIdx) => {
+                    const qId = `${cIdx}-${sIdx}-${qIdx}`;
+                    const answer = state.answers[qId] || { response: "Não Respondido" };
+                    // Escape commas and quotes for CSV
+                    const escape = (text) => `"${text.replace(/"/g, '""')}"`;
+                    csvRows.push([
+                        escape(criterion.title),
+                        escape(sub.title),
+                        escape(qText),
+                        escape(answer.response)
+                    ].join(','));
+                });
+            });
+        });
+        
+        const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        triggerDownload(blob, `${fileName}.csv`);
+    }
+}
+
+function triggerDownload(blob, fileName) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
 init();
+

@@ -72,24 +72,15 @@
                 </div>
             </div>
 
-            <div class="table-responsive">
-                <table id="results-table">
-                    <thead>
-                        <tr>
-                            <th>Critério</th>
-                            <th>Subcritério</th>
-                            <th>Questão</th>
-                            <th>Resposta</th>
-                            <th>Recomendação</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Results will be injected here -->
-                    </tbody>
-                </table>
+            <div id="results-tables-container" class="results-container">
+                <!-- Multiple tables will be injected here by JS -->
             </div>
 
             <div class="results-actions">
+                <div class="download-group">
+                    <button id="download-json-btn" class="btn btn-outline">Baixar JSON</button>
+                    <button id="download-csv-btn" class="btn btn-outline">Baixar CSV</button>
+                </div>
                 <button id="new-inspection-btn" class="btn btn-secondary">Nova Inspeção</button>
                 <button id="print-btn" class="btn btn-primary">Imprimir / Salvar PDF</button>
             </div>
